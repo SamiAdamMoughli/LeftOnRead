@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Common.hpp"
-#include "PayloadManager.hpp"
 
 // ProcessExecutor
 // Responsibility: Handles the final stage of the ghosting attack:

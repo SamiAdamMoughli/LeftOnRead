@@ -5,11 +5,54 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <memory>
 
 // NTAPI functions return NTSTATUS instead of BOOL or HRESULT.
 typedef LONG NTSTATUS;
 #define NT_SUCCESS(Status) ((NTSTATUS)(Status) >= 0)
+
+#ifndef THREAD_CREATE_FLAGS_CREATE_SUSPENDED
+#define THREAD_CREATE_FLAGS_CREATE_SUSPENDED 0x00000001
+#endif
+
+// winternl.h only exposes a stub of RTL_USER_PROCESS_PARAMETERS (just ImagePathName
+// and CommandLine). The full layout is needed to rebase all embedded string pointers
+// when the params block must be copied to a different VA in the remote process.
+typedef struct _CURDIR
+{
+    UNICODE_STRING DosPath;
+    HANDLE Handle;
+} CURDIR;
+
+typedef struct _RTL_USER_PROCESS_PARAMETERS_FULL
+{
+    ULONG MaximumLength;
+    ULONG Length;
+    ULONG Flags;
+    ULONG DebugFlags;
+    HANDLE ConsoleHandle;
+    ULONG ConsoleFlags;
+    HANDLE StandardInput;
+    HANDLE StandardOutput;
+    HANDLE StandardError;
+    CURDIR CurrentDirectory;
+    UNICODE_STRING DllPath;
+    UNICODE_STRING ImagePathName;
+    UNICODE_STRING CommandLine;
+    PVOID Environment;
+    ULONG StartingX;
+    ULONG StartingY;
+    ULONG CountX;
+    ULONG CountY;
+    ULONG CountCharsX;
+    ULONG CountCharsY;
+    ULONG FillAttribute;
+    ULONG WindowFlags;
+    ULONG ShowWindowFlags;
+    UNICODE_STRING WindowTitle;
+    UNICODE_STRING DesktopInfo;
+    UNICODE_STRING ShellInfo;
+    UNICODE_STRING RuntimeData;
+} RTL_USER_PROCESS_PARAMETERS_FULL, *PRTL_USER_PROCESS_PARAMETERS_FULL;
 
 // We define these as types so we can assign them to function pointers.
 typedef NTSTATUS(NTAPI *pNtCreateSection)(
@@ -57,7 +100,7 @@ typedef NTSTATUS(NTAPI *pNtQueryInformationProcess)(
     PULONG ReturnLength);
 
 typedef NTSTATUS(NTAPI *pRtlCreateProcessParametersEx)(
-    PRTL_USER_PROCESS_PARAMETERS *pProcessParameters,
+    PRTL_USER_PROCESS_PARAMETERS_FULL *pProcessParameters,
     PUNICODE_STRING ImagePathName,
     PUNICODE_STRING DllPath,
     PUNICODE_STRING CurrentDirectory,
@@ -70,7 +113,7 @@ typedef NTSTATUS(NTAPI *pRtlCreateProcessParametersEx)(
     ULONG Flags);
 
 typedef NTSTATUS(NTAPI *pRtlDestroyProcessParameters)(
-    PRTL_USER_PROCESS_PARAMETERS ProcessParameters);
+    PRTL_USER_PROCESS_PARAMETERS_FULL ProcessParameters);
 
 class CommonUtils
 {

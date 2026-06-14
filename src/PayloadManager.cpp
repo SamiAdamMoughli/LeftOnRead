@@ -98,8 +98,9 @@ uint32_t PayloadManager::GetEntryPoint(const std::vector<uint8_t> &buffer)
     // Calculate the position of the NT Headers using the e_lfanew offset from DOS header
     uint32_t peOffset = dosHeader->e_lfanew;
 
-    // Ensure we don't read past the end of the buffer
-    if (peOffset + sizeof(IMAGE_NT_HEADERS64) > buffer.size())
+    // Minimum check: IMAGE_NT_HEADERS32 is the smaller of the two layouts and
+    // contains the Magic field we need to branch on.
+    if (peOffset + sizeof(IMAGE_NT_HEADERS32) > buffer.size())
     {
         std::cerr << "[-] Error: Buffer too small to extract entry point." << std::endl;
         return 0;
@@ -109,6 +110,11 @@ uint32_t PayloadManager::GetEntryPoint(const std::vector<uint8_t> &buffer)
 
     if (ntHeaders32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC)
     {
+        if (peOffset + sizeof(IMAGE_NT_HEADERS64) > buffer.size())
+        {
+            std::cerr << "[-] Error: Buffer too small for PE64 headers." << std::endl;
+            return 0;
+        }
         const auto *ntHeaders64 = reinterpret_cast<const IMAGE_NT_HEADERS64 *>(buffer.data() + peOffset);
         return ntHeaders64->OptionalHeader.AddressOfEntryPoint;
     }

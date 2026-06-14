@@ -24,8 +24,8 @@ HANDLE SectionManager::CreateImageSection(HANDLE fileHandle)
     // - DesiredAccess: SECTION_ALL_ACCESS to allow mapping and process creation
     // - ObjectAttributes: Attributes for the section object
     // - MaximumSize: NULL because SEC_IMAGE determines the size from PE headers
-    // - SectionPageProtection: PAGE_EXECUTE_READWRITE (standard for initial image creation)
-    // - AllocationAttributes: SEC_IMAGE (Crucial: this tells Windows it's a PE file)
+    // - SectionPageProtection: PAGE_READONLY (required for SEC_IMAGE sections)
+    // - AllocationAttributes: SEC_IMAGE (tells Windows to treat the file as a PE image)
     // - FileHandle: The handle to our ghost file
     NTSTATUS status = DynamicNT::Instance().NtCreateSection(
         &hSection,

@@ -44,7 +44,7 @@ HANDLE FileGhoster::CreateGhostFile(const std::wstring &filePath)
         return INVALID_HANDLE_VALUE;
     }
 
-    std::cout << "[+] Ghost file created and marked for deletion: " << std::endl;
+    std::wcout << L"[+] Ghost file created and marked for deletion: " << filePath << std::endl;
     return hFile;
 }
 

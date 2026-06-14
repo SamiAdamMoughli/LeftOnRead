@@ -1,229 +1,146 @@
-# LeftOnRead: Process Ghosting PoC Architecture
+# PeekABoo
 
-`LeftOnRead` is a proof-of-concept (PoC) architecture designed to demonstrate the mechanics of **Process Ghosting**, an advanced evasion technique that exploits Windows file disposition and process creation workflows.
+> Windows x64 only
 
-By creating a file, marking it for deletion, writing a payload, and mapping it to a memory section before the file handle is closed, `LeftOnRead` illustrates how code can execute in-memory while leaving no trace of a persistent file on disk. This project serves as a technical resource for security researchers, kernel developers, and blue teams aiming to understand and detect sophisticated endpoint evasion tactics.
+A working proof-of-concept for **Process Ghosting** — a technique where you execute a PE entirely from memory by deleting it off disk before the process even starts. No file for AV to scan, no path that resolves to anything real.
 
----
-
-## Ethical Disclaimer and Terms of Use
-
-**1. Educational and Research Purpose Only**
-`LeftOnRead` is a theoretical proof-of-concept (PoC) architecture intended strictly for academic research, defensive security engineering, and authorized penetration testing. Its sole purpose is to demonstrate how the Windows operating system handles specific API sequences so that security administrators and software developers can better understand, identify, and mitigate evasion techniques.
-
-**2. Strict Prohibition of Unauthorized Use**
-This framework must never be used to target, access, or manipulate any computer system, network, or data without the express, written, and legally binding consent of the system owner. Deploying this technique or any derived code on unauthorized infrastructure is strictly prohibited and may violate local, national, and international laws, including the Computer Fraud and Abuse Act (CFAA).
-
-**3. No Warranty and Limitation of Liability**
-This material is provided "as is" without any warranty of any kind, either express or implied. The authors and contributors assume no liability and are not responsible for any misuse, damage, data loss, or illegal activity caused by the utilization, modification, or distribution of this architectural documentation or any associated concepts.
-
-**4. Defensive Responsibility**
-Users are entirely responsible for ensuring their use of this information complies with all applicable laws and organizational policies. The primary objective of publishing this architecture is to empower blue teams and security vendors to build more robust detection mechanisms against sophisticated endpoint evasion tactics.
+This exists so blue teams can understand exactly what's happening under the hood and build detections around it. If that's not what you're doing with it, don't use it.
 
 ---
 
-## The "Ghosting" Workflow
-
-The Process Ghosting attack follows a precise sequence of operations to successfully bypass security controls:
-
-1. **File Creation**
-
-* Create a new file using `CreateFile` with appropriate permissions.
-* The file is initially empty and serves as a container for our payload.
-
-1. **Mark for Deletion**
-
-* Use `SetFileInformationByHandle` with `FileDispositionInfoEx` to mark the file for deletion.
-* The file won't be actually deleted until all handles are closed.
-
-1. **Payload Writing**
-
-* Write the malicious PE payload to the file using `WriteFile`.
-* Ensure proper PE headers and sections are written correctly.
-
-1. **Section Creation**
-
-* Create an image section from the file using `NtCreateSection`.
-* This creates a memory section object backed by the file.
-* The file handle must remain open during this operation.
-
-1. **Process Creation**
-
-* Create the process using `NtCreateProcessEx` with the previously created section.
-* This creates a process object with the image section as its executable memory.
-
-1. **Handle Management**
-
-* Close the file handle, triggering the actual file deletion.
-* The process continues to execute from the memory section despite the file being gone.
-
-1. **Thread Creation and Execution**
-
-* Create the primary thread in the process using `NtCreateThreadEx`.
-* Set the context to point to the entry point of the loaded PE.
-* Resume thread execution with `NtResumeThread`.
-
----
-
-## Windows API Surface
-
-| API/Native API | Purpose in Attack Chain | Key Parameters |
-| --- | --- | --- |
-| `CreateFile` | Creates the initial file that will host the payload | Desired access (`GENERIC_WRITE`), share mode (`FILE_SHARE_READ`), creation disposition (`CREATE_ALWAYS`) |
-| `SetFileInformationByHandle` | Marks the file for deletion without actually deleting it | File handle, `FileDispositionInfoEx` class, delete flag |
-| `WriteFile` | Writes the malicious PE payload to the file | File handle, buffer containing PE data, number of bytes to write |
-| `NtCreateSection` | Creates a memory section object backed by the file | Section handle, desired access, object attributes, section size, protection flags, file handle |
-| `NtCreateProcessEx` | Creates a process object using the section as the executable image | Process handle, desired access, object attributes, section handle, debug port, inherited handles |
-| `NtCreateThreadEx` | Creates the primary thread in the new process | Thread handle, desired access, object attributes, process handle, start routine, start context |
-| `NtResumeThread` | Resumes thread execution to begin payload execution | Thread handle |
-
----
-
-## Handle Management
-
-Proper handle management is critical to the success of Process Ghosting:
-
-1. **File Handle Lifecycle**
-
-* The file handle must remain open from `CreateFile` until after `NtCreateSection` completes.
-* The handle should be closed after `NtCreateProcessEx` but before thread execution begins.
-* This timing ensures the file is deleted just as the process starts executing.
-
-1. **Section Handle Management**
-
-* The section handle created by `NtCreateSection` must be kept open until `NtCreateProcessEx` completes.
-* The section object maintains a reference to the file even after the file handle is closed.
-* The section handle can be closed after process creation is complete.
-
-1. **Process and Thread Handle Management**
-
-* Process and thread handles should be kept open until they're no longer needed.
-* These handles don't affect the file deletion timing but are needed for process manipulation.
-
-1. **Error Handling**
-
-* All handle creation operations must include proper error checking.
-* If any step fails, all existing handles must be properly closed before exiting.
-
----
-
-## Module Breakdown
-
-### PayloadManager
-
-* **Responsibility**: Manages the payload and ensures it's properly formatted for execution.
-* **Key Functions**:
-* `LoadPayloadFromBuffer`: Loads payload from memory buffer.
-* `ValidatePEHeaders`: Ensures the payload is a valid PE file.
-* `GetEntryPoint`: Retrieves the entry point address from the PE headers.
-
-### FileGhoster
-
-* **Responsibility**: Handles the file operations required for the ghosting technique.
-* **Key Functions**:
-* `CreateGhostFile`: Creates the file and marks it for deletion.
-* `WritePayloadToFile`: Writes the payload to the ghost file.
-* `CloseGhostFile`: Closes the file handle to trigger deletion.
-
-### SectionManager
-
-* **Responsibility**: Manages the creation and manipulation of memory sections.
-* **Key Functions**:
-* `CreateImageSection`: Creates a section object from the ghost file.
-* `ConfigureSectionProtection`: Sets appropriate memory protection flags.
-
-### ProcessExecutor
-
-* **Responsibility**: Handles process creation and execution using the created section.
-* **Key Functions**:
-* `CreateProcessFromSection`: Creates a process from the image section.
-* `CreateProcessThread`: Creates the primary thread in the new process.
-* `ExecutePayload`: Sets up thread context and begins execution.
-
-### ErrorHandler
-
-* **Responsibility**: Centralized error handling and cleanup.
-* **Key Functions**:
-* `LogError`: Logs errors with context.
-* `CleanupResources`: Ensures proper cleanup of handles and resources.
-
----
-
-## Detection & Mitigation
-
-### Potential Detection Methods
-
-1. **Section Creation Monitoring**
-
-* Monitoring `NtCreateSection` calls with file handles that have deletion pending.
-* Correlating section creation with subsequent file deletions.
-
-1. **Process Creation Anomalies**
-
-* Detecting processes created from sections with no corresponding file on disk.
-* Monitoring for processes with PEB pointing to non-existent files.
-
-1. **Handle Analysis**
-
-* Detecting unusual patterns of file handles being opened, written to, marked for deletion, and then used for section creation.
-
-1. **Timing Analysis**
-
-* Identifying the narrow timing window between section creation and file deletion.
-* Monitoring for rapid file creation, deletion, and process creation sequences.
-
-### Mitigation Techniques
-
-1. **Kernel-Level Monitoring**
-
-* Implementing kernel drivers that monitor section creation and process creation at a low level.
-* Tracking the relationship between sections and their backing files.
-
-1. **Memory Analysis**
-
-* Scanning process memory for known malicious patterns during execution.
-* Analyzing the PEB and process parameters for inconsistencies.
-
-1. **Behavioral Analysis**
-
-* Monitoring process behavior rather than just file operations.
-* Detecting suspicious process creation patterns regardless of file presence.
-
-1. **Handle Tracking**
-
-* Implementing comprehensive handle tracking to identify unusual handle usage patterns.
-* Correlating handle operations with process creation events.
-
----
-
-## Build Requirements
-
-### Headers
-
-```cpp
-#include <windows.h>
-#include <winternl.h>
-#include <stdio.h>
-#include <tchar.h>
-#include <iostream>
-
+## How it works
+
+The trick exploits a quirk in how Windows handles file deletion. When you mark a file for deletion with `FILE_DISPOSITION_FLAG_DELETE`, Windows doesn't actually delete it immediately — it just queues the deletion for when the last handle closes. In the meantime, the file is inaccessible to new opens but your handle stays valid.
+
+That window is what we exploit:
+
+1. Create a temp file and immediately mark it for deletion
+2. Write your PE payload into it
+3. Call `NtCreateSection` with `SEC_IMAGE` — the kernel maps the PE into a section object backed by the file
+4. Call `NtCreateProcessEx` with the section — you now have a live process object
+5. Write process parameters into the new process's PEB (without this the loader crashes on startup)
+6. Close the file handle — file disappears from disk, process doesn't care
+7. Create a suspended thread at `ImageBase + EntryPointRVA`
+8. Resume the thread — payload runs
+
+By step 6, there's nothing on disk. The section object holds a reference to the image in memory. Scanners looking for a file path get nothing.
+
+```mermaid
+flowchart TD
+    A["CreateFile\n(GENERIC_READ | GENERIC_WRITE)"]
+    B["SetFileInformationByHandle\n(FILE_DISPOSITION_FLAG_DELETE)"]
+    C["WriteFile\n(write PE payload)"]
+    D["NtCreateSection\n(SEC_IMAGE, PAGE_READONLY)"]
+    E["NtCreateProcessEx\n(process skeleton from section)"]
+    F["RtlCreateProcessParametersEx\n(build params block)"]
+    G["WriteProcessMemory\n(write params into remote PEB)"]
+    H["CloseHandle — file\n💀 File deleted from disk"]
+    I["NtQueryInformationProcess\n(read PEB → ImageBaseAddress)"]
+    J["NtCreateThreadEx\n(suspended, entry = ImageBase + RVA)"]
+    K["CloseHandle — section"]
+    L["NtResumeThread\n✅ Payload executing"]
+
+    A --> B --> C --> D --> E --> F --> G --> H --> I --> J --> K --> L
+
+    style H fill:#c0392b,color:#fff
+    style L fill:#27ae60,color:#fff
 ```
 
-### Compiler Settings
+---
 
-* **Compiler**: Visual Studio 2019 or later, or compatible C++17 compiler.
-* **Platform**: x64 (required for modern Windows systems).
-* **Runtime Linking**: Dynamic linking for Windows APIs.
-* **Character Set**: Unicode.
-* **Optimization**: Release build with optimizations enabled for production use.
+## The part most PoCs get wrong
 
-### Dependencies
+A bare `NtCreateProcessEx` call gives you a process skeleton with no loader state. The PEB's `ProcessParameters` pointer is null. When the thread starts, `ntdll!LdrInitializeThunk` tries to read the image path, working directory, and environment from that pointer and crashes immediately.
 
-* Windows SDK 10.0 or later.
-* No external dependencies beyond Windows system libraries.
+You have to manually build an `RTL_USER_PROCESS_PARAMETERS` block with `RtlCreateProcessParametersEx`, allocate space for it in the remote process, write it in, and patch `PEB.ProcessParameters` before the thread ever runs. This is handled in `ProcessExecutor::SetupProcessParameters`.
 
-### Build Configuration
+The other thing: `winternl.h` only exposes a stub of `RTL_USER_PROCESS_PARAMETERS` with two fields. The real struct has a dozen embedded `UNICODE_STRING` members that need to be rebased if you can't allocate the params block at the same VA as the local copy. The full layout lives in `Common.hpp`.
 
-* Target Architecture: x64
-* Configuration: Release
-* Use of Native API functions requires proper structure definitions from `winternl.h` or custom definitions.
+---
+
+## Handle ordering
+
+The timing here matters. Get it wrong and either the section creation fails or the file isn't actually deleted:
+
+```text
+CreateFile → [file handle open]
+  └─ SetFileInformationByHandle (mark for deletion)
+  └─ WriteFile (write payload)
+  └─ NtCreateSection → [section handle open]
+       └─ NtCreateProcessEx → [process handle open]
+            └─ RtlCreateProcessParametersEx / WriteProcessMemory
+            └─ CloseHandle(file) ← ghosting happens here
+            └─ NtCreateThreadEx (suspended) → [thread handle open]
+            └─ CloseHandle(section)
+            └─ NtResumeThread ← payload starts executing
+            └─ CloseHandle(thread)
+            └─ CloseHandle(process)
+```
+
+The file handle has to stay open through `NtCreateSection`. Close it before that and the section has nothing to back it. Close it after the thread resumes and the file is still on disk when the process starts — defeating the whole point.
+
+---
+
+## Code structure
+
+| Module | What it does |
+| --- | --- |
+| `Common.hpp` | Shared types: `NTSTATUS`, `NT_SUCCESS`, the full `RTL_USER_PROCESS_PARAMETERS` layout, `DynamicNT` singleton that resolves all NT function pointers from `ntdll.dll` at startup |
+| `PayloadManager` | Loads a PE from disk, validates MZ/PE signatures, extracts the entry point RVA — handles both PE32 and PE32+ |
+| `FileGhoster` | Creates the temp file, marks it for deletion, writes the payload, closes the handle |
+| `SectionManager` | Wraps `NtCreateSection` with `SEC_IMAGE` |
+| `ProcessExecutor` | Everything after section creation: process skeleton, PEB parameter setup, image base resolution, thread creation, resume |
+| `ErrorHandler` | Centralized logging (`GetLastError` and NTSTATUS both resolved to strings via `FormatMessageA`), safe handle cleanup |
+
+---
+
+## Detection
+
+If you're on the blue side, here's where to look:
+
+- **`NtCreateSection` on a deletion-pending file handle** — this is the definitive signature. File has `FILE_DISPOSITION_FLAG_DELETE` set and someone is creating an image section from it. No legitimate software does this.
+- **Process with no backing file** — at process creation time, the PEB `ImagePathName` resolves to a path that doesn't exist. ETW's `Microsoft-Windows-Kernel-Process` provider fires events you can correlate with file deletion timestamps.
+- **`NtCreateProcessEx` called directly** — normal processes go through `CreateProcess`. Anything calling `NtCreateProcessEx` from userland is worth a look.
+- **In-memory scanning** — the file is gone but the image is still mapped. Memory scanners can still match signatures against the mapped sections.
+
+A kernel driver using `PsSetCreateProcessNotifyRoutineEx` can check at process-creation time whether the backing image file is openable. If it's already deleted, flag it.
+
+---
+
+## Building
+
+Requires Windows 10 1809+ (RS5) for `FILE_DISPOSITION_INFO_EX`. Anything older won't compile.
+
+### CMake
+
+```bat
+cmake -B build -A x64
+cmake --build build --config Release
+```
+
+Output: `build\Release\PeekABoo.exe`
+
+### Visual Studio
+
+1. New empty C++ project, platform x64, configuration Release
+2. Add `src\` as source files, `include\peek-a-boo\` as additional include directory
+3. Character set: Unicode
+4. Build
+
+---
+
+## Usage
+
+```bat
+PeekABoo.exe <payload.exe> [ghost_path]
+```
+
+`ghost_path` defaults to `C:\Windows\Temp\ghost_payload.bin` if not specified.
+
+For a quick smoke test, copy any system binary (`notepad.exe`, `calc.exe`) as your payload. If it launches, the chain worked.
+
+---
+
+## Disclaimer
+
+This is for research and authorized testing only. Don't run it against systems you don't own or have explicit written permission to test. The authors take no responsibility for what you do with it.

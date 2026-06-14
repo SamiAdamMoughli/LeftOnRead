@@ -95,7 +95,7 @@ HANDLE ProcessExecutor::CreateProcessThread(HANDLE processHandle, uint32_t entry
         processHandle,
         startRoutine,
         NULL,
-        0,
+        THREAD_CREATE_FLAGS_CREATE_SUSPENDED,
         0,
         0,
         0,
@@ -146,7 +146,7 @@ bool ProcessExecutor::SetupProcessParameters(HANDLE processHandle, const std::ws
     UNICODE_STRING uImagePath;
     CommonUtils::ToUnicodeString(imagePath, uImagePath);
 
-    RTL_USER_PROCESS_PARAMETERS *params = nullptr;
+    RTL_USER_PROCESS_PARAMETERS_FULL *params = nullptr;
     // RTL_USER_PROCESS_PARAMETERS_NORMALIZED (0x01): strings use absolute pointers
     NTSTATUS status = DynamicNT::Instance().RtlCreateProcessParametersEx(
         &params,
