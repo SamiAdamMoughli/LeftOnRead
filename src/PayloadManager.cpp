@@ -56,19 +56,28 @@ bool PayloadManager::ValidatePE(const std::vector<uint8_t> &buffer)
         return false;
     }
 
-    // 3. Check if the PE header offset is within buffer bounds
+    // 3. Check if the PE header offset is within buffer bounds (use the smaller
+    //    IMAGE_NT_HEADERS32 size here — both 32 and 64 share the same Signature field).
     uint32_t peOffset = dosHeader->e_lfanew;
-    if (peOffset + sizeof(IMAGE_NT_HEADERS64) > buffer.size())
+    if (peOffset + sizeof(IMAGE_NT_HEADERS32) > buffer.size())
     {
         std::cerr << "[-] PE header offset points outside of buffer bounds." << std::endl;
         return false;
     }
 
     // 4. Check for "PE\0\0" signature at the offset provided by e_lfanew
-    const auto *ntHeaders = reinterpret_cast<const IMAGE_NT_HEADERS64 *>(buffer.data() + peOffset);
-    if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
+    const auto *ntHeaders32 = reinterpret_cast<const IMAGE_NT_HEADERS32 *>(buffer.data() + peOffset);
+    if (ntHeaders32->Signature != IMAGE_NT_SIGNATURE)
     {
         std::cerr << "[-] Invalid PE signature." << std::endl;
+        return false;
+    }
+
+    // 5. Confirm the optional header magic matches a supported architecture.
+    WORD magic = ntHeaders32->OptionalHeader.Magic;
+    if (magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC && magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC)
+    {
+        std::cerr << "[-] Unrecognised optional header magic: 0x" << std::hex << magic << std::dec << std::endl;
         return false;
     }
 
@@ -96,8 +105,13 @@ uint32_t PayloadManager::GetEntryPoint(const std::vector<uint8_t> &buffer)
         return 0;
     }
 
-    const auto *ntHeaders = reinterpret_cast<const IMAGE_NT_HEADERS64 *>(buffer.data() + peOffset);
+    const auto *ntHeaders32 = reinterpret_cast<const IMAGE_NT_HEADERS32 *>(buffer.data() + peOffset);
 
-    // AddressOfEntryPoint is the RVA of the entry point
-    return ntHeaders->OptionalHeader.AddressOfEntryPoint;
+    if (ntHeaders32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC)
+    {
+        const auto *ntHeaders64 = reinterpret_cast<const IMAGE_NT_HEADERS64 *>(buffer.data() + peOffset);
+        return ntHeaders64->OptionalHeader.AddressOfEntryPoint;
+    }
+
+    return ntHeaders32->OptionalHeader.AddressOfEntryPoint;
 }
