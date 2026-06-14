@@ -34,11 +34,11 @@ flowchart TD
     E["NtCreateProcessEx\n(process skeleton from section)"]
     F["RtlCreateProcessParametersEx\n(build params block)"]
     G["WriteProcessMemory\n(write params into remote PEB)"]
-    H["CloseHandle — file\n💀 File deleted from disk"]
+    H["CloseHandle — file\n File deleted from disk"]
     I["NtQueryInformationProcess\n(read PEB → ImageBaseAddress)"]
     J["NtCreateThreadEx\n(suspended, entry = ImageBase + RVA)"]
     K["CloseHandle — section"]
-    L["NtResumeThread\n✅ Payload executing"]
+    L["NtResumeThread\n Payload executing"]
 
     A --> B --> C --> D --> E --> F --> G --> H --> I --> J --> K --> L
 
