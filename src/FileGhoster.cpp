@@ -26,14 +26,13 @@ HANDLE FileGhoster::CreateGhostFile(const std::wstring &filePath)
     }
 
     // 2. Mark the file for deletion
-    // FILE_DISPOSITION_INFO_EX is used to mark the file for deletion without
-    // immediately removing it, provided the handle stays open.
-    FILE_DISPOSITION_INFO_EX dispositionInfo;
-    dispositionInfo.Flags = FILE_DISPOSITION_FLAG_DELETE;
+    // The file won't actually be removed until the last handle is closed.
+    FILE_DISPOSITION_INFO dispositionInfo;
+    dispositionInfo.DeleteFile = TRUE;
 
     BOOL success = SetFileInformationByHandle(
         hFile,
-        FileDispositionInfoEx,
+        FileDispositionInfo,
         &dispositionInfo,
         sizeof(dispositionInfo));
 
