@@ -28,7 +28,7 @@ HANDLE ProcessExecutor::CreateProcessFromSection(HANDLE sectionHandle)
         PROCESS_ALL_ACCESS,
         &objAttr,
         GetCurrentProcess(),
-        0,
+        PS_INHERIT_HANDLES,
         sectionHandle,
         NULL,
         NULL,
