@@ -8,7 +8,13 @@
 
 // NTAPI functions return NTSTATUS instead of BOOL or HRESULT.
 typedef LONG NTSTATUS;
+#ifndef NT_SUCCESS
 #define NT_SUCCESS(Status) ((NTSTATUS)(Status) >= 0)
+#endif
+
+#ifndef PS_INHERIT_HANDLES
+#define PS_INHERIT_HANDLES 0x00000004
+#endif
 
 #ifndef THREAD_CREATE_FLAGS_CREATE_SUSPENDED
 #define THREAD_CREATE_FLAGS_CREATE_SUSPENDED 0x00000001
