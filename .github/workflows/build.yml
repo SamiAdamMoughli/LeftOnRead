@@ -28,7 +28,8 @@ jobs:
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: build/Release/PeekABoo.exe
-          overwrite: true
+        run: |
+          gh release delete ${{ github.ref_name }} --yes 2>/dev/null || true
+          gh release create ${{ github.ref_name }} build/Release/PeekABoo.exe
+        env:
+          GH_TOKEN: ${{ github.token }}
