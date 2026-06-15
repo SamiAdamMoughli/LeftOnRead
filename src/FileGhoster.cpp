@@ -12,7 +12,7 @@ HANDLE FileGhoster::CreateGhostFile(const std::wstring &filePath)
     // We need GENERIC_WRITE to write the payload and GENERIC_READ for the section creation later
     HANDLE hFile = CreateFileW(
         filePath.c_str(),
-        GENERIC_READ | GENERIC_WRITE,
+        GENERIC_READ | GENERIC_WRITE | DELETE,
         FILE_SHARE_READ,
         NULL,
         CREATE_ALWAYS,
